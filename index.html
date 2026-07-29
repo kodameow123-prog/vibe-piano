@@ -6,16 +6,8 @@
     <title>Vibe Piano Visualizer Pro 🎹</title>
     <!-- Tone.js for audio synthesis + MIDI parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
-    <!-- midi-parser-js: lightweight MIDI parser, works as global -->
-    <script src="https://cdn.jsdelivr.net/npm/midi-parser-js@4.0.4/dist/midi-parser.min.js"></script>
-    <script>
-        // Alias midi-parser-js's global to Midi
-        // The library exposes window.MidiParser which has a .parse() method
-        // We'll wrap it so our code can use `new Midi(arrayBuffer)` style
-        if (typeof MidiParser !== 'undefined') {
-            window.Midi = MidiParser;
-        }
-    </script>
+    <!-- @tonejs/midi v2.0.28 — UMD browser build -->
+    <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
