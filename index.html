@@ -312,19 +312,34 @@
         const w = keyW * 0.8;
         const h = noteH;
         const color = getNoteColor(midi);
-        // Start position: delay scales into pixels
-        // Use a much bigger multiplier so notes with longer delays start further down
-        const pxPerSec = 120; // visual density — higher = more spread out
-        const keyY = KEY_LINE_Y_FRAC * H; // use computed line Y
-        const startY = -h - (delay * pxPerSec);
+        
+        // Calculate fall speed in pixels per second
+        const pixelsPerSec = (keyLineY + noteH + 20) / 2.5; // travel full height in ~2.5s
+        
+        // The note should hit the key line after `delay` seconds
+        // So it starts at: keyLineY - (pixelsPerSec * delay)
+        // This way: delay=0 starts at key line, delay=2s starts 2s above the key line
+        const totalTravelDist = keyLineY + noteH + 20; // top to key line
+        const travelDuration = totalTravelDist / pixelsPerSec;
+        
+        // How far along the path should this note be based on its delay?
+        // If delay = travelDuration, note starts at top
+        // If delay = 0, note starts at key line
+        // If delay > travelDuration, note hasn't appeared yet
+        
+        // Position based on delay: earlier notes (smaller delay) start closer to bottom
+        const progressFromTop = Math.max(0, 1 - (delay / travelDuration));
+        const startY = -h - 20 + (keyLineY + h + 20) * Math.min(progressFromTop, 1);
 
         scheduledNotes.push({
-            x, y: startY,
+            x, 
+            y: startY,
             w, h,
             color,
             midi,
             hit: false,
             duration,
+            fallSpeed: pixelsPerSec,
             opacity: 1
         });
     }
@@ -387,7 +402,7 @@
 
         statusEl.textContent = `Loaded ${allNotes.length} notes`;
 
-        // Schedule all notes
+        // Spawn all notes with staggered start positions
         allNotes.forEach(n => {
             spawnFallNote(n.midi, n.time, n.duration);
         });
@@ -481,9 +496,10 @@
         }
 
         // ── Draw falling notes ──
+        const speedMult = config.speed * 0.6; // 0.6x at speed=1, 3.0x at speed=5, 4.8x at speed=8
         scheduledNotes.forEach((note, idx) => {
-            // Speed: much faster fall rate
-            note.y += config.speed * 3;
+            // Move note downward based on its fall speed and config multiplier
+            note.y += note.fallSpeed * speedMult * (1/60);
 
             // Glow
             ctx.shadowBlur = config.glowIntensity;
