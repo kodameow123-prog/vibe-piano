@@ -154,8 +154,8 @@
         <button class="primary" id="play-btn">▶ Start</button>
         <div class="control-group">
             <label>Speed</label>
-            <input type="range" id="speed-slider" min="1" max="8" step="0.5" value="1" />
-            <span class="value-label" id="speed-val">1</span>
+            <input type="range" id="speed-slider" min="1" max="8" step="0.5" value="5" />
+            <span class="value-label" id="speed-val">5</span>
         </div>
         <div class="control-group">
             <label>Volume</label>
@@ -212,7 +212,7 @@ let activeKeys = new Set();
 
 // Engine config
 const config = {
-    speed: 1,
+    speed: 5,
     volume: -10,
     noteHeight: 20,
     glowIntensity: 18,
