@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vibe Piano Visualizer Pro 🎹</title>
-    <!-- Tone.js for audio synthesis + MIDI parsing -->
+    <!-- Tone.js for audio synthesis -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <!-- @tonejs/midi v2.0.28 — UMD browser build -->
     <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
@@ -164,7 +164,7 @@
         </div>
         <button class="file-btn">📁 MIDI<input type="file" accept=".mid,.midi" id="file-input" /></button>
         <button id="clear-btn">✕ Clear</button>
-        <span id="status">Ready</span>
+        <span id="status">Click anywhere to start 🎹</span>
     </div>
 
     <div id="keyboard-hint">🎹 Click keys or use QWERTY (Z-M white / S-K black)</div>
@@ -174,719 +174,565 @@
     </div>
 
     <script>
-    /* ============================================================
-     *  VIBE PIANO VISUALIZER PRO — Synthesia-style MIDI Player
-     *  Engine: Canvas 2D + Tone.js + @tonejs/midi
-     * ============================================================ */
+/* ============================================================
+ *  VIBE PIANO VISUALIZER PRO — Synthesia-style MIDI Player
+ *  Engine: Canvas 2D + Tone.js + @tonejs/midi (Salamander piano)
+ * ============================================================ */
 
-    // ─── Constants ───────────────────────────────────────────────
-    const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-    const MIDI_MIN = 21;   // A0
-    const MIDI_MAX = 108;  // C8
-    const TOTAL_KEYS = 88;
-    const KEY_LINE_Y_FRAC = 0.78; // 78% from top = piano sits near bottom
+// ─── Constants ───────────────────────────────────────────────
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const MIDI_MIN = 21;   // A0
+const MIDI_MAX = 108;  // C8
+const TOTAL_KEYS = 88;
+const KEY_LINE_Y_FRAC = 0.78; // 78% from top = piano sits near bottom
 
-    // QWERTY keyboard mapping for 2-octave playable range
-    const KEY_MAP = {};
-    const QWERTY_WHITE = ['z','x','c','v','b','n','m',',','.','/'];
-    const QWERTY_BLACK = ['s','d','g','h','j','l',';'];
-    const QWERTY_NOTE_OFFSET = 60; // Middle C
+// QWERTY keyboard mapping for 2-octave playable range
+const KEY_MAP = {};
+const QWERTY_WHITE = ['z','x','c','v','b','n','m',',','.','/'];
+const QWERTY_BLACK = ['s','d','g','h','j','l',';'];
+QWERTY_WHITE.forEach((k, i) => { KEY_MAP[k] = 60 + i; });
+QWERTY_BLACK.forEach((k, i) => { KEY_MAP[k] = 61 + i * 2; });
 
-    // Build key map: white keys on home row, black on upper row
-    const whiteNotes = [];
-    for (let i = 0; i < 14; i++) {
-        // Skip E-F and B-C half steps for black key positions
-        const noteOffset = i + QWERTY_NOTE_OFFSET;
-        if (i < 10) KEY_MAP[QWERTY_WHITE[i]] = noteOffset;
-    }
-    // Black keys
-    const blackOffsets = [1,3,6,8,10]; // C#, D#, F#, G#, A#
-    const qwertyBlackIdx = ['s','d','g','h','j'];
-    qwertyBlackIdx.forEach((k, i) => {
-        const baseNote = QWERTY_NOTE_OFFSET + Math.floor(i * 2.5);
-        KEY_MAP[k] = baseNote + 1; // sharp of the white key before it
+// ─── State ──────────────────────────────────────────────────
+const canvas = document.getElementById('main-canvas');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+
+let W, H, keyLineY, keyW, noteH;
+let animId = null;
+let isPlaying = false;
+let midiData = null;
+let scheduledNotes = [];
+let particles = [];
+let activeKeys = new Set();
+
+// Engine config
+const config = {
+    speed: 5,
+    volume: -10,
+    noteHeight: 20,
+    glowIntensity: 18,
+    particleCount: 10,
+};
+
+// Audio
+let toneStarted = false;
+let synth = null;
+let volumeNode = null;
+
+// ─── Resize ─────────────────────────────────────────────────
+function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.scale(dpr, dpr);
+    keyLineY = H * KEY_LINE_Y_FRAC;
+    keyW = W / TOTAL_KEYS;
+    noteH = keyW * 2.5;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── Audio Setup ────────────────────────────────────────────
+function initAudio() {
+    if (synth) return;
+    // Salamander Grand Piano v3 — real piano samples
+    synth = new Tone.Sampler({
+        urls: {
+            A0: "A0.mp3", C1: "C1.mp3", "D#1": "Ds1.mp3", "F#1": "Fs1.mp3",
+            A1: "A1.mp3", C2: "C2.mp3", "D#2": "Ds2.mp3", "F#2": "Fs2.mp3",
+            A2: "A2.mp3", C3: "C3.mp3", "D#3": "Ds3.mp3", "F#3": "Fs3.mp3",
+            A3: "A3.mp3", C4: "C4.mp3", "D#4": "Ds4.mp3", "F#4": "Fs4.mp3",
+            A4: "A4.mp3", C5: "C5.mp3", "D#5": "Ds5.mp3", "F#5": "Fs5.mp3",
+            A5: "A5.mp3", C6: "C6.mp3", "D#6": "Ds6.mp3", "F#6": "Fs6.mp3",
+            A6: "A6.mp3", C7: "C7.mp3", "D#7": "Ds7.mp3", "F#7": "Fs7.mp3",
+            A7: "A7.mp3", C8: "C8.mp3"
+        },
+        release: 2.0,
+        baseUrl: "https://tonejs.github.io/audio/salamander/",
+        onload: () => { console.log("Piano samples loaded"); }
+    }, 64);
+    // Preload all samples
+    synth.preload();
+
+    volumeNode = new Tone.Volume(config.volume);
+    synth.connect(volumeNode);
+    volumeNode.toDestination();
+}
+
+function startAudio() {
+    if (toneStarted) return;
+    try { Tone.start(); } catch(e) {}
+    initAudio();
+    toneStarted = true;
+    statusEl.textContent = 'Engine Active — Tap keys or drop a MIDI';
+}
+
+// ─── Color Helpers ──────────────────────────────────────────
+function getNoteColor(midi) {
+    const octave = Math.floor((midi - 12) / 12);
+    const palette = [
+        '#ff4d4d', '#ff8c00', '#ffd700', '#32cd32',
+        '#00ced1', '#4169e1', '#7b68ee', '#da70d6',
+        '#ff69b4', '#ff6eb4', '#ff1493', '#9370db',
+    ];
+    return palette[octave % palette.length];
+}
+
+function midiToX(midi) {
+    const idx = midi - MIDI_MIN;
+    return idx * keyW + keyW * 0.1;
+}
+
+// ─── Falling Notes ──────────────────────────────────────────
+function spawnFallNote(midi, delay, duration) {
+    const x = midiToX(midi);
+    const w = keyW * 0.8;
+    const h = noteH;
+    const color = getNoteColor(midi);
+    
+    // Fall speed in pixels per second (full screen ~2.5s at speed=1)
+    const pixelsPerSec = (keyLineY + noteH + 20) / 2.5;
+    const totalTravelDist = keyLineY + noteH + 20;
+    const travelDuration = totalTravelDist / pixelsPerSec;
+    
+    // Position based on delay: delay=0 starts at key line, delay=travelDuration starts at top
+    const progressFromTop = Math.max(0, Math.min(1, 1 - (delay / travelDuration)));
+    const startY = -h - 20 + totalTravelDist * progressFromTop;
+    
+    // Notes at/below key line are already "hit" - don't trigger on frame 1
+    const alreadyHit = startY + h >= keyLineY;
+
+    scheduledNotes.push({
+        x, 
+        y: startY,
+        w, h,
+        color,
+        midi,
+        hit: alreadyHit,
+        duration,
+        fallSpeed: pixelsPerSec,
+        opacity: 1
     });
+}
 
-    // ─── State ──────────────────────────────────────────────────
-    const canvas = document.getElementById('main-canvas');
-    const ctx = canvas.getContext('2d');
-    const statusEl = document.getElementById('status');
-
-    let W, H, keyLineY, keyW, noteH;
-    let animId = null;
-    let isPlaying = false;
-    let midiData = null;     // Parsed Midi object
-    let scheduledNotes = []; // { x, y, w, h, color, midi, hit, speed }
-    let particles = [];
-    let activeKeys = new Set(); // MIDI numbers currently highlighted
-    let keyGlow = {}; // midi -> { intensity, time }
-
-    // Engine config
-    const config = {
-        speed: 5,
-        volume: -10,
-        noteHeight: 20,
-        glowIntensity: 18,
-        particleCount: 10,
-    };
-
-    // Audio
-    let toneStarted = false;
-    let synth = null;
-    let volumeNode = null;
-
-    // ─── Resize ─────────────────────────────────────────────────
-    function resize() {
-        const dpr = window.devicePixelRatio || 1;
-        W = window.innerWidth;
-        H = window.innerHeight;
-        canvas.width = W * dpr;
-        canvas.height = H * dpr;
-        canvas.style.width = W + 'px';
-        canvas.style.height = H + 'px';
-        ctx.scale(dpr, dpr);
-        keyLineY = H * KEY_LINE_Y_FRAC;
-        keyW = W / TOTAL_KEYS;
-        noteH = keyW * 2.5;
-    }
-    window.addEventListener('resize', resize);
-    resize();
-
-    // ─── Audio Setup ────────────────────────────────────────────
-    function initAudio() {
-        if (synth) return;
-        // Use a Sampler with real piano samples from Tone.js CDN
-        synth = new Tone.Sampler({
-            urls: {
-                A0: "A0.mp3",
-                C1: "C1.mp3",
-                "D#1": "Ds1.mp3",
-                "F#1": "Fs1.mp3",
-                A1: "A1.mp3",
-                C2: "C2.mp3",
-                "D#2": "Ds2.mp3",
-                "F#2": "Fs2.mp3",
-                A2: "A2.mp3",
-                C3: "C3.mp3",
-                "D#3": "Ds3.mp3",
-                "F#3": "Fs3.mp3",
-                A3: "A3.mp3",
-                C4: "C4.mp3",
-                "D#4": "Ds4.mp3",
-                "F#4": "Fs4.mp3",
-                A4: "A4.mp3",
-                C5: "C5.mp3",
-                "D#5": "Ds5.mp3",
-                "F#5": "Fs5.mp3",
-                A5: "A5.mp3",
-                C6: "C6.mp3",
-                "D#6": "Ds6.mp3",
-                "F#6": "Fs6.mp3",
-                A6: "A6.mp3",
-                C7: "C7.mp3",
-                "D#7": "Ds7.mp3",
-                "F#7": "Fs7.mp3",
-                A7: "A7.mp3",
-                C8: "C8.mp3"
-            },
-            release: 2.0,
-            baseUrl: "https://tonejs.github.io/audio/salamander/",
-            onload: () => { console.log("Piano samples loaded"); }
-        }, 64);
-        // Preload all samples
-        synth.preload();
-
-        volumeNode = new Tone.Volume(config.volume);
-        synth.connect(volumeNode);
-        volumeNode.toDestination();
-    }
-
-    function startAudio() {
-        if (toneStarted) return;
-        try { Tone.start(); } catch(e) {}
-        initAudio();
-        toneStarted = true;
-        statusEl.textContent = 'Engine Active — Tap keys or drop a MIDI';
-    }
-                                A7: "A7.mp3",
-                                C8: "C8.mp3"
-                            },
-                            release: 2.0,
-                            baseUrl: "https://tonejs.github.io/audio/salamander/",
-                            onload: () => { console.log("Piano samples loaded"); }
-                        }, 64);
-                        // Preload all samples
-                        synth.preload(); "F#5": "Fs5.mp3",
-                                A5: "A5.mp3",
-                                C6: "C6.mp3",
-                                "D#6": "Ds6.mp3",
-                                "F#6": "Fs6.mp3",
-                                A6: "A6.mp3",
-                                C7: "C7.mp3",
-                                "D#7": "Ds7.mp3",
-                                "F#7": "Fs7.mp3",
-                                A7: "A7.mp3",
-                                C8: "C8.mp3"
-                            },
-                            release: 2.0,
-                            baseUrl: "https://tonejs.github.io/audio/salamander/",
-                            onload: () => { console.log("Piano samples loaded"); }
-                        }, 64);
-                        // Preload all samples
-                        synth.preload();
-        initAudio();
-        toneStarted = true;
-        statusEl.textContent = 'Engine Active — Tap keys or drop a MIDI';
-    }
-
-    // ─── Color Helpers ──────────────────────────────────────────
-    function getNoteColor(midi) {
-        // Synthesia-inspired color mapping by octave
-        const octave = Math.floor((midi - 12) / 12);
-        const palette = [
-            '#ff4d4d', // Red      (C)
-            '#ff8c00', // Orange   (C#)
-            '#ffd700', // Gold     (D)
-            '#32cd32', // Lime     (D#)
-            '#00ced1', // Cyan     (E)
-            '#4169e1', // Royal    (F)
-            '#7b68ee', // Medium   (F#)
-            '#da70d6', // Orchid   (G)
-            '#ff69b4', // Hot Pink (G#)
-            '#ff6eb4', // Pink     (A)
-            '#ff1493', // Deep     (A#)
-            '#9370db', // Purple   (B)
-        ];
-        return palette[octave % palette.length];
-    }
-
-    function getNoteGlow(midi) {
-        // Lighter version for glow
-        const c = getNoteColor(midi);
-        return c;
-    }
-
-    // ─── MIDI Note to X Position ────────────────────────────────
-    function midiToX(midi) {
-        const idx = midi - MIDI_MIN;
-        return idx * keyW + keyW * 0.1; // 10% padding
-    }
-
-    // ─── Falling Notes ──────────────────────────────────────────
-    function spawnFallNote(midi, delay, duration) {
-        const x = midiToX(midi);
-        const w = keyW * 0.8;
-        const h = noteH;
-        const color = getNoteColor(midi);
-        
-        // Calculate fall speed in pixels per second
-        const pixelsPerSec = (keyLineY + noteH + 20) / 2.5; // travel full height in ~2.5s
-        const totalTravelDist = keyLineY + noteH + 20;
-        const travelDuration = totalTravelDist / pixelsPerSec;
-        
-        // Position based on delay: earlier notes start closer to bottom
-        // delay=0 starts at key line, delay=travelDuration starts at top
-        const progressFromTop = Math.max(0, Math.min(1, 1 - (delay / travelDuration)));
-        const startY = -h - 20 + totalTravelDist * progressFromTop;
-        
-        // Notes that start at or below key line are "already hit" - don't play on frame 1
-        const alreadyHit = startY + h >= keyLineY;
-
-        scheduledNotes.push({
-            x, 
-            y: startY,
-            w, h,
+function createParticles(x, y, color, count = config.particleCount) {
+    for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1 + Math.random() * 6;
+        particles.push({
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 2,
+            life: 0.6 + Math.random() * 0.4,
+            size: 1.5 + Math.random() * 3,
             color,
-            midi,
-            hit: alreadyHit,  // Prevent immediate trigger for delay=0 notes
-            duration,
-            fallSpeed: pixelsPerSec,
-            opacity: 1
+            decay: 0.015 + Math.random() * 0.025
         });
     }
+}
 
-    // ─── Particles ──────────────────────────────────────────────
-    function createParticles(x, y, color, count = config.particleCount) {
-        for (let i = 0; i < count; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const speed = 1 + Math.random() * 6;
-            particles.push({
-                x, y,
-                vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed - 2,
-                life: 0.6 + Math.random() * 0.4,
-                maxLife: 1.0,
-                size: 1.5 + Math.random() * 3,
-                color,
-                decay: 0.015 + Math.random() * 0.025
+function triggerKeyGlow(midi) {
+    activeKeys.add(midi);
+    setTimeout(() => activeKeys.delete(midi), 200);
+}
+
+// ─── MIDI Processing ────────────────────────────────────────
+function processMidi(midi) {
+    scheduledNotes = [];
+    particles = [];
+    activeKeys.clear();
+
+    if (!midi || !midi.tracks) return;
+
+    const allNotes = [];
+    midi.tracks.forEach(track => {
+        if (track.notes) {
+            track.notes.forEach(n => {
+                allNotes.push({
+                    midi: n.midi,
+                    time: n.time,
+                    duration: n.duration,
+                    velocity: n.velocity || 80
+                });
             });
+        }
+    });
+
+    allNotes.sort((a, b) => a.time - b.time);
+
+    if (allNotes.length === 0) {
+        statusEl.textContent = 'No notes found in MIDI';
+        return;
+    }
+
+    statusEl.textContent = `Loaded ${allNotes.length} notes`;
+    allNotes.forEach(n => spawnFallNote(n.midi, n.time, n.duration));
+}
+
+// ─── Render Loop ────────────────────────────────────────────
+function render() {
+    // Clear
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, W, H);
+
+    // Keyboard line
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, keyLineY);
+    ctx.lineTo(W, keyLineY);
+    ctx.stroke();
+
+    // Piano keyboard — white keys
+    for (let i = 0; i < TOTAL_KEYS; i++) {
+        const midi = i + MIDI_MIN;
+        const x = i * keyW;
+        const isBlack = NOTE_NAMES[(midi - 12) % 12].includes('#');
+        if (isBlack) continue;
+
+        const isActive = activeKeys.has(midi);
+        ctx.fillStyle = isActive ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.04)';
+        ctx.fillRect(x, keyLineY, keyW, H - keyLineY);
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(x, keyLineY, keyW, H - keyLineY);
+
+        if (isActive) {
+            const color = getNoteColor(midi);
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = color;
+            ctx.fillStyle = color;
+            ctx.globalAlpha = 0.15;
+            ctx.fillRect(x, keyLineY, keyW, H - keyLineY);
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
         }
     }
 
-    // ─── Key Glow ───────────────────────────────────────────────
-    function triggerKeyGlow(midi) {
-        activeKeys.add(midi);
-        keyGlow[midi] = { intensity: 1.0, time: performance.now() };
-        setTimeout(() => activeKeys.delete(midi), 200);
+    // Black keys
+    for (let i = 0; i < TOTAL_KEYS; i++) {
+        const midi = i + MIDI_MIN;
+        const x = i * keyW;
+        const isBlack = NOTE_NAMES[(midi - 12) % 12].includes('#');
+        if (!isBlack) continue;
+
+        const isActive = activeKeys.has(midi);
+        const bkH = (H - keyLineY) * 0.6;
+
+        if (isActive) {
+            const color = getNoteColor(midi);
+            ctx.shadowBlur = 25;
+            ctx.shadowColor = color;
+            ctx.fillStyle = color;
+            ctx.globalAlpha = 0.5;
+        } else {
+            ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        }
+        ctx.fillRect(x - keyW * 0.15, keyLineY, keyW * 0.7, bkH);
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(x - keyW * 0.15, keyLineY, keyW * 0.7, bkH);
     }
 
-    // ─── MIDI Processing ────────────────────────────────────────
-    function processMidi(midi) {
-        scheduledNotes = [];
-        particles = [];
-        activeKeys.clear();
+    // Falling notes
+    const speedMult = config.speed * 0.6;
+    scheduledNotes.forEach((note, idx) => {
+        note.y += note.fallSpeed * speedMult * (1/60);
 
-        const midiData = midi;
-        if (!midiData || !midiData.tracks) return;
+        // Glow
+        ctx.shadowBlur = config.glowIntensity;
+        ctx.shadowColor = note.color;
 
-        const allNotes = [];
-        midiData.tracks.forEach(track => {
-            if (track.notes) {
-                track.notes.forEach(n => {
-                    allNotes.push({
-                        midi: n.midi,
-                        time: n.time,
-                        duration: n.duration,
-                        velocity: n.velocity || 80
-                    });
-                });
+        // Rounded rectangle
+        const r = 4;
+        const x = note.x, y = note.y, w = note.w, h = note.h;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+        ctx.fillStyle = note.color;
+        ctx.globalAlpha = 0.85;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+
+        // Inner highlight
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(x + 2, y + 2, w - 4, h * 0.3);
+
+        // Collision check
+        if (!note.hit && y + h >= keyLineY) {
+            note.hit = true;
+            triggerKeyGlow(note.midi);
+            createParticles(x + w/2, keyLineY, note.color);
+
+            // Play sound
+            if (toneStarted && synth) {
+                try {
+                    synth.triggerAttackRelease(note.midi, note.duration || 0.3);
+                } catch(e) {}
             }
-        });
+        }
 
-        // Sort by time
-        allNotes.sort((a, b) => a.time - b.time);
+        // Remove off-screen
+        if (y > H + 50) {
+            scheduledNotes.splice(idx, 1);
+        }
+    });
 
-        if (allNotes.length === 0) {
-            statusEl.textContent = 'No notes found in MIDI';
+    // Particles
+    particles.forEach((p, idx) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.08;
+        p.life -= p.decay;
+
+        if (p.life <= 0) {
+            particles.splice(idx, 1);
             return;
         }
 
-        statusEl.textContent = `Loaded ${allNotes.length} notes`;
+        ctx.globalAlpha = p.life;
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = p.color;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+        ctx.shadowBlur = 0;
+    });
+    ctx.globalAlpha = 1;
 
-        // Spawn all notes with staggered start positions
-        allNotes.forEach(n => {
-            spawnFallNote(n.midi, n.time, n.duration);
-        });
-
-        // Store for audio scheduling
-        window.__midiNotes = allNotes;
-        window.__midiStartTime = null;
-    }
-
-    // ─── Render Loop ────────────────────────────────────────────
-    function render() {
-        // Clear
-        ctx.fillStyle = '#050505';
-        ctx.fillRect(0, 0, W, H);
-
-        // ── Draw keyboard line ──
-        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    // Playhead line
+    if (isPlaying) {
+        ctx.strokeStyle = 'rgba(0, 243, 255, 0.08)';
         ctx.lineWidth = 1;
+        ctx.setLineDash([4, 8]);
         ctx.beginPath();
         ctx.moveTo(0, keyLineY);
         ctx.lineTo(W, keyLineY);
         ctx.stroke();
+        ctx.setLineDash([]);
+    }
 
-        // ── Draw piano keyboard ──
-        // White keys first
-        for (let i = 0; i < TOTAL_KEYS; i++) {
-            const midi = i + MIDI_MIN;
-            const x = i * keyW;
-            const isBlack = NOTE_NAMES[(midi - 12) % 12].includes('#');
-            if (isBlack) continue;
+    animId = requestAnimationFrame(render);
+}
 
-            const isActive = activeKeys.has(midi);
-            ctx.fillStyle = isActive
-                ? 'rgba(255,255,255,0.15)'
-                : 'rgba(255,255,255,0.04)';
-            ctx.fillRect(x, keyLineY, keyW, H - keyLineY);
+// ─── MIDI File Load ─────────────────────────────────────────
+async function loadMidiFile(file) {
+    try {
+        statusEl.textContent = 'Loading MIDI...';
+        const buffer = await file.arrayBuffer();
+        const midi = new Midi(buffer);
+        midiData = midi;
+        statusEl.textContent = `Loaded: ${file.name} (${midi.tracks.length} tracks)`;
+        processMidi(midi);
+        return true;
+    } catch (e) {
+        statusEl.textContent = `Error: ${e.message}`;
+        console.error(e);
+        return false;
+    }
+}
 
-            // Border
-            ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-            ctx.lineWidth = 0.5;
-            ctx.strokeRect(x, keyLineY, keyW, H - keyLineY);
-
-            // Key glow when active
-            if (isActive) {
-                const color = getNoteColor(midi);
-                ctx.shadowBlur = 30;
-                ctx.shadowColor = color;
-                ctx.fillStyle = color;
-                ctx.globalAlpha = 0.15;
-                ctx.fillRect(x, keyLineY, keyW, H - keyLineY);
-                ctx.globalAlpha = 1;
-                ctx.shadowBlur = 0;
-            }
-
-            // Note label on first few
-            if (i < 3 || (i > 50 && i < 53) || i === 39) {
-                ctx.fillStyle = 'rgba(255,255,255,0.1)';
-                ctx.font = '8px sans-serif';
-                ctx.textAlign = 'center';
-                const noteName = NOTE_NAMES[(midi - 12) % 12];
-                ctx.fillText(noteName, x + keyW/2, keyLineY + H - keyLineY - 6);
-            }
-        }
-
-        // Black keys
-        for (let i = 0; i < TOTAL_KEYS; i++) {
-            const midi = i + MIDI_MIN;
-            const x = i * keyW;
-            const isBlack = NOTE_NAMES[(midi - 12) % 12].includes('#');
-            if (!isBlack) continue;
-
-            const isActive = activeKeys.has(midi);
-            const bkH = (H - keyLineY) * 0.6;
-
-            if (isActive) {
-                const color = getNoteColor(midi);
-                ctx.shadowBlur = 25;
-                ctx.shadowColor = color;
-                ctx.fillStyle = color;
-                ctx.globalAlpha = 0.5;
-            } else {
-                ctx.fillStyle = 'rgba(255,255,255,0.08)';
-            }
-            ctx.fillRect(x - keyW * 0.15, keyLineY, keyW * 0.7, bkH);
-            ctx.globalAlpha = 1;
-            ctx.shadowBlur = 0;
-
-            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-            ctx.lineWidth = 0.5;
-            ctx.strokeRect(x - keyW * 0.15, keyLineY, keyW * 0.7, bkH);
-        }
-
-        // ── Draw falling notes ──
-        const speedMult = config.speed * 0.6; // 0.6x at speed=1, 3.0x at speed=5, 4.8x at speed=8
-        scheduledNotes.forEach((note, idx) => {
-            // Move note downward based on its fall speed and config multiplier
-            note.y += note.fallSpeed * speedMult * (1/60);
-
-            // Glow
-            ctx.shadowBlur = config.glowIntensity;
-            ctx.shadowColor = note.color;
-
-            // Main rectangle with rounded corners
-            const r = 4;
-            const x = note.x, y = note.y, w = note.w, h = note.h;
-            ctx.beginPath();
-            ctx.moveTo(x + r, y);
-            ctx.lineTo(x + w - r, y);
-            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-            ctx.lineTo(x + w, y + h - r);
-            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-            ctx.lineTo(x + r, y + h);
-            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-            ctx.lineTo(x, y + r);
-            ctx.quadraticCurveTo(x, y, x + r, y);
-            ctx.closePath();
-            ctx.fillStyle = note.color;
-            ctx.globalAlpha = 0.85;
-            ctx.fill();
-            ctx.globalAlpha = 1;
-            ctx.shadowBlur = 0;
-
-            // Inner highlight
-            ctx.fillStyle = 'rgba(255,255,255,0.15)';
-            ctx.fillRect(x + 2, y + 2, w - 4, h * 0.3);
-            ctx.shadowBlur = 0;
-
-            // Collision check
-            if (!note.hit && y + h >= keyLineY) {
-                note.hit = true;
-                triggerKeyGlow(note.midi);
-                createParticles(x + w/2, keyLineY, note.color);
-
-                // Play sound when note hits the key line
-                if (toneStarted && synth) {
-                    try {
-                        synth.triggerAttackRelease(note.midi, note.duration || 0.3);
-                    } catch(e) {}
-                }
-            }
-
-            // Remove off-screen
-            if (y > H + 50) {
-                scheduledNotes.splice(idx, 1);
-            }
+// ─── Interactive Play ───────────────────────────────────────
+function playNoteByMidi(midi) {
+    if (!toneStarted) startAudio();
+    if (!synth) return;
+    try {
+        synth.triggerAttackRelease(midi, 0.5);
+        triggerKeyGlow(midi);
+        // Visual falling note
+        const x = midiToX(midi);
+        const w = keyW * 0.8;
+        const color = getNoteColor(midi);
+        scheduledNotes.push({
+            x, y: -noteH, w, h: noteH,
+            color, midi, hit: false,
+            duration: 0.5, opacity: 1,
+            fallSpeed: (keyLineY + noteH + 20) / 2.5
         });
+    } catch(e) {}
+}
 
-        // ── Draw particles ──
-        particles.forEach((p, idx) => {
-            p.x += p.vx;
-            p.y += p.vy;
-            p.vy += 0.08; // gravity
-            p.life -= p.decay;
-
-            if (p.life <= 0) {
-                particles.splice(idx, 1);
-                return;
-            }
-
-            ctx.globalAlpha = p.life;
-            ctx.shadowBlur = 6;
-            ctx.shadowColor = p.color;
-            ctx.fillStyle = p.color;
-            ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
-            ctx.shadowBlur = 0;
-        });
-        ctx.globalAlpha = 1;
-
-        // ── Play note when falling notes hit in play mode ──
-        // Also render a "playhead" line
-        if (isPlaying) {
-            ctx.strokeStyle = 'rgba(0, 243, 255, 0.08)';
-            ctx.lineWidth = 1;
-            ctx.setLineDash([4, 8]);
-            ctx.beginPath();
-            ctx.moveTo(0, keyLineY);
-            ctx.lineTo(W, keyLineY);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-
-        animId = requestAnimationFrame(render);
+// ─── UI Events ──────────────────────────────────────────────
+document.getElementById('play-btn').addEventListener('click', () => {
+    try { Tone.start(); } catch(e) {}
+    startAudio();
+    if (!midiData && !demoLoaded) {
+        bootDemo();
+        return;
     }
-
-    // ─── MIDI File Load ─────────────────────────────────────────
-    async function loadMidiFile(file) {
-        try {
-            statusEl.textContent = 'Loading MIDI...';
-            const buffer = await file.arrayBuffer();
-            const midi = new Midi(buffer);
-            midiData = midi;
-            statusEl.textContent = `Loaded: ${file.name} (${midi.tracks.length} tracks)`;
-            processMidi(midi);
-            return true;
-        } catch (e) {
-            statusEl.textContent = `Error: ${e.message}`;
-            console.error(e);
-            return false;
-        }
+    if (!midiData) return;
+    isPlaying = !isPlaying;
+    document.getElementById('play-btn').textContent = isPlaying ? '⏸ Pause' : '▶ Play';
+    if (isPlaying) {
+        processMidi(midiData);
+        statusEl.textContent = `Playing — ${scheduledNotes.length} notes`;
+    } else {
+        statusEl.textContent = 'Paused';
     }
+});
 
-    // ─── Interactive Play ───────────────────────────────────────
-    function playNoteByMidi(midi) {
-        if (!toneStarted) startAudio();
-        if (!synth) return;
-        try {
-            synth.triggerAttackRelease(midi, 0.5);
-            triggerKeyGlow(midi);
-            // Visual falling note
-            const x = midiToX(midi);
-            const w = keyW * 0.8;
-            const color = getNoteColor(midi);
-            scheduledNotes.push({
-                x, y: -noteH, w, h: noteH,
-                color, midi, hit: false,
-                duration: 0.5, opacity: 1
-            });
-        } catch(e) {}
-    }
+document.getElementById('file-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    await loadMidiFile(file);
+    isPlaying = false;
+    document.getElementById('play-btn').textContent = '▶ Play';
+});
 
-    // ─── UI Events ──────────────────────────────────────────────
-    document.getElementById('play-btn').addEventListener('click', () => {
-        try { Tone.start(); } catch(e) {}
-        startAudio();
-        if (!midiData && !demoLoaded) {
-            bootDemo();
-            return;
-        }
-        if (!midiData) return;
-        isPlaying = !isPlaying;
-        document.getElementById('play-btn').textContent = isPlaying ? '⏸ Pause' : '▶ Play';
-        if (isPlaying) {
-            // Reset and re-process notes from the top
-            processMidi(midiData);
-            statusEl.textContent = `Playing — ${scheduledNotes.length} notes`;
-        } else {
-            statusEl.textContent = 'Paused';
-        }
-    });
+document.getElementById('clear-btn').addEventListener('click', () => {
+    scheduledNotes = [];
+    particles = [];
+    activeKeys.clear();
+    isPlaying = false;
+    midiData = null;
+    demoLoaded = false;
+    document.getElementById('play-btn').textContent = '▶ Start';
+    statusEl.textContent = 'Cleared';
+});
 
-    document.getElementById('file-input').addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        await loadMidiFile(file);
-        isPlaying = false;
-        document.getElementById('play-btn').textContent = '▶ Play';
-    });
+document.getElementById('speed-slider').addEventListener('input', () => {
+    config.speed = parseFloat(document.getElementById('speed-slider').value);
+    document.getElementById('speed-val').textContent = config.speed;
+});
 
-    document.getElementById('clear-btn').addEventListener('click', () => {
-        scheduledNotes = [];
-        particles = [];
-        activeKeys.clear();
-        isPlaying = false;
-        midiData = null;
-        document.getElementById('play-btn').textContent = '▶ Start';
-        statusEl.textContent = 'Cleared';
-    });
+document.getElementById('volume-slider').addEventListener('input', () => {
+    config.volume = parseFloat(document.getElementById('volume-slider').value);
+    document.getElementById('vol-val').textContent = config.volume;
+    if (volumeNode) volumeNode.volume.value = config.volume;
+});
 
-    // Speed slider
-    const speedSlider = document.getElementById('speed-slider');
-    const speedVal = document.getElementById('speed-val');
-    speedSlider.addEventListener('input', () => {
-        config.speed = parseFloat(speedSlider.value);
-        speedVal.textContent = config.speed;
-    });
-
-    // Volume slider
-    const volSlider = document.getElementById('volume-slider');
-    const volVal = document.getElementById('vol-val');
-    volSlider.addEventListener('input', () => {
-        config.volume = parseFloat(volSlider.value);
-        volVal.textContent = config.volume;
-        if (volumeNode) volumeNode.volume.value = config.volume;
-    });
-
-    // ─── QWERTY Keyboard Input ──────────────────────────────────
-    document.addEventListener('keydown', (e) => {
-        const key = e.key.toLowerCase();
-        // Map QWERTY to MIDI notes
-        const whiteBase = ['z','x','c','v','b','n','m',',','.','/'];
-        const whiteIdx = whiteBase.indexOf(key);
-        if (whiteIdx >= 0) {
-            const midi = 60 + whiteIdx;
-            // Skip black key positions (E-F, B-C half steps)
-            const skipMap = [3, 7]; // Position 3 = E->F skip, 7 = B->C skip
-            const adjusted = whiteIdx < 3 ? whiteIdx : whiteIdx + 1;
-            const note = 60 + (whiteIdx < 3 ? whiteIdx : whiteIdx + 1);
-            playNoteByMidi(note);
-            e.preventDefault();
-            return;
-        }
-        const blackMap = {'s':61,'d':63,'g':66,'h':68,'j':70};
-        if (blackMap[key]) {
-            playNoteByMidi(blackMap[key]);
-            e.preventDefault();
-        }
-    });
-
-    // Mouse click on piano area
-    canvas.addEventListener('click', (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        if (my > keyLineY) {
-            const keyIdx = Math.floor(mx / keyW);
-            const midi = keyIdx + MIDI_MIN;
-            playNoteByMidi(midi);
-        }
-    });
-
-    // Touch support
-    canvas.addEventListener('touchstart', (e) => {
+// ─── QWERTY Keyboard Input ──────────────────────────────────
+document.addEventListener('keydown', (e) => {
+    const key = e.key.toLowerCase();
+    if (KEY_MAP[key]) {
+        playNoteByMidi(KEY_MAP[key]);
         e.preventDefault();
-        for (const touch of e.changedTouches) {
-            const rect = canvas.getBoundingClientRect();
-            const mx = touch.clientX - rect.left;
-            const my = touch.clientY - rect.top;
-            if (my > keyLineY) {
-                const keyIdx = Math.floor(mx / keyW);
-                const midi = keyIdx + MIDI_MIN;
-                playNoteByMidi(midi);
-            }
-        }
-    });
+    }
+});
 
-    // Drag to play
-    let isDragging = false;
-    canvas.addEventListener('mousedown', (e) => {
+// Mouse/Touch on piano
+canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    if (my > keyLineY) {
+        const keyIdx = Math.floor(mx / keyW);
+        const midi = keyIdx + MIDI_MIN;
+        playNoteByMidi(midi);
+    }
+});
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    for (const touch of e.changedTouches) {
         const rect = canvas.getBoundingClientRect();
-        const my = e.clientY - rect.top;
-        if (my > keyLineY) isDragging = true;
-    });
-    canvas.addEventListener('mousemove', (e) => {
-        if (!isDragging) return;
-        const rect = canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
+        const mx = touch.clientX - rect.left;
+        const my = touch.clientY - rect.top;
         if (my > keyLineY) {
             const keyIdx = Math.floor(mx / keyW);
             const midi = keyIdx + MIDI_MIN;
             playNoteByMidi(midi);
         }
-    });
-    canvas.addEventListener('mouseup', () => { isDragging = false; });
-    canvas.addEventListener('mouseleave', () => { isDragging = false; });
-
-    // ─── Sample built-in melody (demo) ──────────────────────────
-    function loadDemoMelody() {
-        // More dramatic demo — faster notes, bigger spread
-        const notes = [
-            { midi: 60, time: 0, duration: 0.15 },
-            { midi: 64, time: 0.15, duration: 0.15 },
-            { midi: 67, time: 0.3, duration: 0.3 },
-            { midi: 72, time: 0.5, duration: 0.4 },
-            { midi: 76, time: 0.7, duration: 0.15 },
-            { midi: 72, time: 0.85, duration: 0.15 },
-            { midi: 79, time: 1.0, duration: 0.5 },
-            { midi: 77, time: 1.3, duration: 0.15 },
-            { midi: 76, time: 1.45, duration: 0.15 },
-            { midi: 74, time: 1.6, duration: 0.15 },
-            { midi: 72, time: 1.75, duration: 0.3 },
-            { midi: 71, time: 2.1, duration: 0.15 },
-            { midi: 72, time: 2.25, duration: 0.15 },
-            { midi: 74, time: 2.4, duration: 0.15 },
-            { midi: 76, time: 2.55, duration: 0.4 },
-            { midi: 72, time: 2.8, duration: 0.15 },
-            { midi: 69, time: 2.95, duration: 0.15 },
-            { midi: 67, time: 3.1, duration: 0.5 },
-            { midi: 65, time: 3.5, duration: 0.15 },
-            { midi: 67, time: 3.65, duration: 0.15 },
-            { midi: 69, time: 3.8, duration: 0.15 },
-            { midi: 72, time: 3.95, duration: 0.3 },
-            { midi: 77, time: 4.2, duration: 0.15 },
-            { midi: 76, time: 4.35, duration: 0.15 },
-            { midi: 74, time: 4.5, duration: 0.15 },
-            { midi: 72, time: 4.65, duration: 0.3 },
-            { midi: 67, time: 4.9, duration: 0.5 },
-            { midi: 60, time: 5.2, duration: 0.15 },
-            { midi: 64, time: 5.3, duration: 0.15 },
-            { midi: 67, time: 5.4, duration: 0.15 },
-            // Big finish
-            { midi: 72, time: 5.6, duration: 0.2 },
-            { midi: 76, time: 5.7, duration: 0.2 },
-            { midi: 79, time: 5.8, duration: 0.2 },
-            { midi: 84, time: 6.0, duration: 0.8 },
-        ];
-        window.__midiNotes = notes.map(n => ({...n, velocity: 90}));
-        notes.forEach(n => spawnFallNote(n.midi, n.time, n.duration));
-        midiData = { tracks: [{ notes }] };
-        statusEl.textContent = 'Demo loaded!';
-        document.getElementById('play-btn').textContent = '⏸ Pause';
     }
+});
 
-    // Click anywhere to start engine and load demo
-    // Use multiple event types to ensure it catches the first user interaction
-    let demoLoaded = false;
-    function bootDemo() {
-        if (demoLoaded || midiData) return;
-        demoLoaded = true;
-        // Must call Tone.start() synchronously in user gesture
-        try { Tone.start(); } catch(e) {}
-        startAudio();
-        loadDemoMelody();
-        isPlaying = true;
-        document.getElementById('play-btn').textContent = '⏸ Pause';
-        statusEl.textContent = 'Playing demo 🎹';
+let isDragging = false;
+canvas.addEventListener('mousedown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    if (e.clientY - rect.top > keyLineY) isDragging = true;
+});
+canvas.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    if (my > keyLineY) {
+        const keyIdx = Math.floor(mx / keyW);
+        const midi = keyIdx + MIDI_MIN;
+        playNoteByMidi(midi);
     }
-    document.addEventListener('click', bootDemo, { once: true });
-    document.addEventListener('touchstart', bootDemo, { once: true });
-    document.getElementById('play-btn').addEventListener('click', (e) => {
-        if (!demoLoaded && !midiData) {
-            bootDemo();
-        }
-    });
+});
+canvas.addEventListener('mouseup', () => { isDragging = false; });
+canvas.addEventListener('mouseleave', () => { isDragging = false; });
 
-    // Also handle mousedown on canvas to ensure audio context resume  
-    canvas.addEventListener('mousedown', () => {
-        try { Tone.start(); } catch(e) {}
-    }, { once: true });
+// ─── Demo Melody ────────────────────────────────────────────
+function loadDemoMelody() {
+    const notes = [
+        { midi: 60, time: 0,   duration: 0.15 },
+        { midi: 64, time: 0.15, duration: 0.15 },
+        { midi: 67, time: 0.3,  duration: 0.3 },
+        { midi: 72, time: 0.5,  duration: 0.4 },
+        { midi: 76, time: 0.7,  duration: 0.15 },
+        { midi: 72, time: 0.85, duration: 0.15 },
+        { midi: 79, time: 1.0,  duration: 0.5 },
+        { midi: 77, time: 1.3,  duration: 0.15 },
+        { midi: 76, time: 1.45, duration: 0.15 },
+        { midi: 74, time: 1.6,  duration: 0.15 },
+        { midi: 72, time: 1.75, duration: 0.3 },
+        { midi: 71, time: 2.1,  duration: 0.15 },
+        { midi: 72, time: 2.25, duration: 0.15 },
+        { midi: 74, time: 2.4,  duration: 0.15 },
+        { midi: 76, time: 2.55, duration: 0.4 },
+        { midi: 72, time: 2.8,  duration: 0.15 },
+        { midi: 69, time: 2.95, duration: 0.15 },
+        { midi: 67, time: 3.1,  duration: 0.5 },
+        { midi: 65, time: 3.5,  duration: 0.15 },
+        { midi: 67, time: 3.65, duration: 0.15 },
+        { midi: 69, time: 3.8,  duration: 0.15 },
+        { midi: 72, time: 3.95, duration: 0.3 },
+        { midi: 77, time: 4.2,  duration: 0.15 },
+        { midi: 76, time: 4.35, duration: 0.15 },
+        { midi: 74, time: 4.5,  duration: 0.15 },
+        { midi: 72, time: 4.65, duration: 0.3 },
+        { midi: 67, time: 4.9,  duration: 0.5 },
+        { midi: 60, time: 5.2,  duration: 0.15 },
+        { midi: 64, time: 5.3,  duration: 0.15 },
+        { midi: 67, time: 5.4,  duration: 0.15 },
+        { midi: 72, time: 5.6,  duration: 0.2 },
+        { midi: 76, time: 5.7,  duration: 0.2 },
+        { midi: 79, time: 5.8,  duration: 0.2 },
+        { midi: 84, time: 6.0,  duration: 0.8 },
+    ];
+    notes.forEach(n => spawnFallNote(n.midi, n.time, n.duration));
+    midiData = { tracks: [{ notes }] };
+    statusEl.textContent = 'Demo loaded!';
+    document.getElementById('play-btn').textContent = '⏸ Pause';
+}
 
-    // ─── Start ──────────────────────────────────────────────────
-    render();
-    statusEl.textContent = 'Click anywhere to start 🎹';
-    </script>
+// Click anywhere to start engine + demo
+let demoLoaded = false;
+function bootDemo() {
+    if (demoLoaded || midiData) return;
+    demoLoaded = true;
+    startAudio();
+    loadDemoMelody();
+    isPlaying = true;
+    document.getElementById('play-btn').textContent = '⏸ Pause';
+    statusEl.textContent = 'Playing demo 🎹';
+}
+document.addEventListener('click', bootDemo, { once: true });
+document.addEventListener('touchstart', bootDemo, { once: true });
+canvas.addEventListener('mousedown', () => { try { Tone.start(); } catch(e) {} }, { once: true });
+
+// ─── Start ──────────────────────────────────────────────────
+render();
+</script>
 </body>
 </html>
