@@ -167,8 +167,18 @@
             <option value="">🎵 Gallery — Select a song...</option>
         </select>
         <button id="clear-btn">✕ Clear</button>
+        <select id="genre-filter" style="padding:6px 10px; background:#111; color:#fff; border:1px solid #333; border-radius:6px; font-size:12px; min-width:150px;">
+            <option value="all">🎵 All Genres</option>
+            <option value="Classical">🎼 Classical</option>
+            <option value="Neoclassical / Film">🎬 Neoclassical / Film</option>
+            <option value="Final Fantasy">🎮 Final Fantasy</option>
+            <option value="Cantopop / Hong Kong">🎤 Cantopop / Hong Kong</option>
+        </select>
+        <button id="add-to-queue-btn" style="padding:4px 8px; background:#333; color:#fff; border:1px solid #555; border-radius:4px; cursor:pointer; font-size:11px;">+ Add to Queue</button>
+        <button id="clear-queue-btn" style="padding:4px 8px; background:#333; color:#fff; border:1px solid #555; border-radius:4px; cursor:pointer; font-size:11px;">Clear Queue</button>
         <span id="status">Click anywhere to start 🎹</span>
         <div id="now-playing" style="margin-top:8px; font-size:12px; color:#00f3ff; opacity:0.8; white-space:nowrap; text-align:center;"></div>
+        <div id="queue-display" style="margin-top:4px; font-size:10px; color:#aaa; max-height:80px; overflow-y:auto; text-align:left; font-family:monospace;"></div>
     </div>
 
     <div id="keyboard-hint">🎹 Click keys or use QWERTY (Z-M white / S-K black)</div>
@@ -197,6 +207,11 @@ const QWERTY_BLACK = ['s','d','g','h','j','l',';'];
 QWERTY_WHITE.forEach((k, i) => { KEY_MAP[k] = 60 + i; });
 QWERTY_BLACK.forEach((k, i) => { KEY_MAP[k] = 61 + i * 2; });
 
+// Queue state
+let songQueue = [];
+let currentQueueIndex = -1;
+let isQueuePlaying = false;
+
 // ─── State ──────────────────────────────────────────────────
 const canvas = document.getElementById('main-canvas');
 const ctx = canvas.getContext('2d');
@@ -209,6 +224,7 @@ let midiData = null;
 let scheduledNotes = [];
 let particles = [];
 let activeKeys = new Set();
+let currentKeySignature = null;
 
 // Engine config
 const config = {
@@ -283,6 +299,36 @@ function getNoteColor(midi) {
 function midiToX(midi) {
     const idx = midi - MIDI_MIN;
     return idx * keyW + keyW * 0.1;
+}
+
+function midiToNoteName(midi) {
+    const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const octave = Math.floor(midi / 12) - 1;
+    return names[midi % 12] + octave;
+}
+
+function detectKeySignature(notes) {
+    if (!notes || notes.length === 0) {
+        currentKeySignature = null;
+        return;
+    }
+    const counts = new Array(12).fill(0);
+    notes.forEach(n => { counts[n.midi % 12] += n.velocity || 1; });
+    const major = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+    const minor = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+    let bestKey = 0, bestScore = -1, isMajor = true;
+    for (let k = 0; k < 12; k++) {
+        let ms = 0, ms2 = 0;
+        for (let pc = 0; pc < 12; pc++) {
+            const idx = (pc - k + 12) % 12;
+            ms += counts[pc] * major[idx];
+            ms2 += counts[pc] * minor[idx];
+        }
+        if (ms > bestScore) { bestScore = ms; bestKey = k; isMajor = true; }
+        if (ms2 > bestScore) { bestScore = ms2; bestKey = k; isMajor = false; }
+    }
+    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    currentKeySignature = noteNames[bestKey] + (isMajor ? ' Major' : ' Minor');
 }
 
 // ─── Falling Notes ──────────────────────────────────────────
@@ -362,6 +408,7 @@ function processMidi(midi) {
     }
 
     statusEl.textContent = `Loaded ${allNotes.length} notes`;
+    detectKeySignature(allNotes);
     allNotes.forEach(n => spawnFallNote(n.midi, n.time, n.duration));
 }
 
@@ -374,6 +421,14 @@ function render() {
     // Clear
     ctx.fillStyle = '#050505';
     ctx.fillRect(0, 0, W, H);
+
+    // Key signature display (top-right)
+    if (currentKeySignature) {
+        ctx.fillStyle = 'rgba(0, 243, 255, 0.8)';
+        ctx.font = 'bold 14px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`Key: ${currentKeySignature}`, W - 20, 30);
+    }
 
     // Keyboard line
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
@@ -473,6 +528,13 @@ function render() {
         ctx.fillStyle = 'rgba(255,255,255,0.15)';
         ctx.fillRect(x + 2, y + 2, w - 4, h * 0.3);
 
+        // Note name overlay
+        const noteName = midiToNoteName(note.midi);
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(noteName, x + w / 2, y + h / 2 + 3);
+
         // Collision check
         if (!note.hit && y + h >= keyLineY) {
             note.hit = true;
@@ -527,6 +589,80 @@ function render() {
     }
 
     animId = requestAnimationFrame(render);
+    checkQueueAdvance();
+}
+
+// ─── Queue System ──────────────────────────────────────────
+function addToQueue(filename) {
+    if (!songQueue.includes(filename)) {
+        songQueue.push(filename);
+        updateQueueDisplay();
+        const title = filename.replace('.mid', '').replace(/-/g, ' ');
+        statusEl.textContent = `Added: ${title}`;
+    }
+}
+
+function addCategoryToQueue(category) {
+    const files = MIDI_GALLERY[category];
+    if (!files) return;
+    files.forEach(f => { if (!songQueue.includes(f)) songQueue.push(f); });
+    updateQueueDisplay();
+    statusEl.textContent = `Added ${files.length} songs from ${category}`;
+}
+
+function updateQueueDisplay() {
+    const el = document.getElementById('queue-display');
+    if (songQueue.length === 0) { el.textContent = 'Queue empty'; return; }
+    el.innerHTML = songQueue.map((s, i) => {
+        const title = s.replace('.mid', '').replace(/-/g, ' ');
+        const mark = (i === currentQueueIndex && isQueuePlaying) ? '▶ ' : '  ';
+        return `<div>${mark}${i+1}. ${title}</div>`;
+    }).join('');
+}
+
+function playNextInQueue() {
+    currentQueueIndex++;
+    if (currentQueueIndex < songQueue.length) {
+        loadQueueItem(currentQueueIndex);
+    } else {
+        isQueuePlaying = false;
+        currentQueueIndex = -1;
+        songQueue = [];
+        updateQueueDisplay();
+        statusEl.textContent = 'Queue finished';
+    }
+}
+
+function loadQueueItem(index) {
+    const filename = songQueue[index];
+    currentQueueIndex = index;
+    isQueuePlaying = true;
+    updateQueueDisplay();
+    fetch('/midi/' + filename)
+        .then(r => { if (!r.ok) throw new Error('Not found'); return r.blob(); })
+        .then(b => loadMidiFile(new File([b], filename, { type: 'audio/midi' })))
+        .then(() => {
+            isPlaying = true;
+            isQueuePlaying = true;
+            document.getElementById('play-btn').textContent = '⏸ Pause';
+            setNowPlaying(filename);
+            processMidi(midiData);
+            statusEl.textContent = `Playing: ${filename.replace('.mid', '').replace(/-/g, ' ')}`;
+            updateQueueDisplay();
+        })
+        .catch(e => { statusEl.textContent = `Queue error: ${e.message}`; playNextInQueue(); });
+}
+
+function setNowPlaying(filename) {
+    const title = filename ? filename.replace('.mid', '').replace(/-/g, ' ') : '';
+    document.getElementById('now-playing').textContent = title ? '♪ ' + title : '';
+}
+
+// Queue auto-advance check (runs in render loop)
+function checkQueueAdvance() {
+    if (isQueuePlaying && isPlaying && scheduledNotes.length === 0 && particles.length === 0 && midiData) {
+        setTimeout(playNextInQueue, 600);
+    }
 }
 
 // ─── MIDI File Load ─────────────────────────────────────────
@@ -802,6 +938,7 @@ const MIDI_GALLERY = {
 
 function populateMidiGallery() {
     const select = document.getElementById('midi-gallery');
+    select.innerHTML = '<option value="">🎵 Gallery — Select a song...</option>';
     Object.entries(MIDI_GALLERY).forEach(([category, files]) => {
         const optgroup = document.createElement('optgroup');
         optgroup.label = category;
@@ -825,9 +962,7 @@ async function loadGalleryMidi(filename) {
         await loadMidiFile(file);
         isPlaying = false;
         document.getElementById('play-btn').textContent = '▶ Play';
-        // Update now playing display
-        const title = filename.replace('.mid', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        document.getElementById('now-playing').textContent = `♪ Now Playing: ${title}`;
+        setNowPlaying(filename);
     } catch (e) {
         statusEl.textContent = `Failed: ${e.message}`;
         console.error(e);
@@ -838,7 +973,7 @@ document.getElementById('midi-gallery').addEventListener('change', (e) => {
     const filename = e.target.value;
     if (!filename) return;
     loadGalleryMidi(filename);
-    e.target.value = ''; // Allow re-selecting same file
+    e.target.value = '';
 });
 
 document.getElementById('speed-slider').addEventListener('input', () => {
@@ -852,47 +987,39 @@ document.getElementById('volume-slider').addEventListener('input', () => {
     if (volumeNode) volumeNode.volume.value = config.volume;
 });
 
-// ─── MIDI Gallery Dropdown ────────────────────────────────────
-function populateMidiGallery() {
+// Genre filter
+document.getElementById('genre-filter').addEventListener('change', (e) => {
+    const filter = e.target.value;
     const select = document.getElementById('midi-gallery');
+    select.innerHTML = '<option value="">🎵 Gallery — Select a song...</option>';
     Object.entries(MIDI_GALLERY).forEach(([category, files]) => {
-        const optgroup = document.createElement('optgroup');
-        optgroup.label = category;
-        files.forEach(f => {
-            const opt = document.createElement('option');
-            opt.value = f;
-            opt.textContent = f.replace('.mid', '').replace(/-/g, ' ');
-            optgroup.appendChild(opt);
-        });
-        select.appendChild(optgroup);
+        if (filter === 'all' || filter === category) {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = category;
+            files.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f;
+                opt.textContent = f.replace('.mid', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                optgroup.appendChild(opt);
+            });
+            select.appendChild(optgroup);
+        }
     });
-}
-
-document.getElementById('midi-gallery').addEventListener('change', async (e) => {
-    const filename = e.target.value;
-    if (!filename) return;
-    
-    try {
-        const resp = await fetch('/midi/' + filename);
-        if (!resp.ok) throw new Error('Not found');
-        const blob = await resp.blob();
-        const file = new File([blob], filename, { type: 'audio/midi' });
-        await loadMidiFile(file);
-        isPlaying = false;
-        document.getElementById('play-btn').textContent = '▶ Play';
-        // Update now playing display
-        const title = filename.replace('.mid', '').replace(/-/g, ' ');
-        document.getElementById('now-playing').textContent = '♪ ' + title;
-    } catch (err) {
-        statusEl.textContent = `Error loading ${filename}`;
-        console.error(err);
-    }
 });
 
-function setNowPlaying(filename) {
-    const title = filename ? filename.replace('.mid', '').replace(/-/g, ' ') : '';
-    document.getElementById('now-playing').textContent = title ? '♪ ' + title : '';
-}
+// Queue event listeners
+document.getElementById('add-to-queue-btn').addEventListener('click', () => {
+    const filename = document.getElementById('midi-gallery').value;
+    if (filename) addToQueue(filename);
+});
+
+document.getElementById('clear-queue-btn').addEventListener('click', () => {
+    songQueue = [];
+    currentQueueIndex = -1;
+    isQueuePlaying = false;
+    updateQueueDisplay();
+    statusEl.textContent = 'Queue cleared';
+});
 
 populateMidiGallery();
 
