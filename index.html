@@ -6,7 +6,8 @@
     <title>Vibe Piano Visualizer Pro 🎹</title>
     <!-- Tone.js for audio synthesis + MIDI parsing -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
-    <script src="https://unpkg.com/@tonejs/midi@2.0.28/dist/index.js"></script>
+    <!-- @tonejs/midi - correctly loaded as UMD -->
+    <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/dist/index.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
