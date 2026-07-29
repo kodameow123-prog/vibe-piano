@@ -4,7 +4,7 @@
     { "src": "index.html", "use": "@vercel/static" }
   ],
   "routes": [
-    { "src": "/midi/(.*)", "dest": "/public/midi/$1" },
+    { "src": "/midi/(.*)", "dest": "/midi/$1" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
