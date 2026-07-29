@@ -1,0 +1,6 @@
+{
+  "name": "vibe-piano",
+  "version": "1.0.0",
+  "description": "A lightweight, browser-based piano using the Web Audio API",
+  "private": true
+}
