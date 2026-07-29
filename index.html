@@ -625,26 +625,21 @@
 
     // ─── UI Events ──────────────────────────────────────────────
     document.getElementById('play-btn').addEventListener('click', () => {
+        try { Tone.start(); } catch(e) {}
         startAudio();
-        if (midiData) {
-            isPlaying = !isPlaying;
-            document.getElementById('play-btn').textContent = isPlaying ? '⏸ Pause' : '▶ Play';
-            if (isPlaying) {
-                // Reset and re-process notes from the top
-                processMidi(midiData);
-                statusEl.textContent = `Playing — ${scheduledNotes.length} notes`;
-            } else {
-                statusEl.textContent = 'Paused';
-            }
-        } else if (!midiData && !demoLoaded) {
-            // Load demo and play
-            loadDemoMelody();
-            demoLoaded = true;
-            isPlaying = true;
-            document.getElementById('play-btn').textContent = '⏸ Pause';
-            statusEl.textContent = 'Playing demo...';
+        if (!midiData && !demoLoaded) {
+            bootDemo();
+            return;
+        }
+        if (!midiData) return;
+        isPlaying = !isPlaying;
+        document.getElementById('play-btn').textContent = isPlaying ? '⏸ Pause' : '▶ Play';
+        if (isPlaying) {
+            // Reset and re-process notes from the top
+            processMidi(midiData);
+            statusEl.textContent = `Playing — ${scheduledNotes.length} notes`;
         } else {
-            statusEl.textContent = 'Load a MIDI file first!';
+            statusEl.textContent = 'Paused';
         }
     });
 
@@ -807,6 +802,8 @@
     function bootDemo() {
         if (demoLoaded || midiData) return;
         demoLoaded = true;
+        // Must call Tone.start() synchronously in user gesture
+        try { Tone.start(); } catch(e) {}
         startAudio();
         loadDemoMelody();
         isPlaying = true;
@@ -820,6 +817,11 @@
             bootDemo();
         }
     });
+
+    // Also handle mousedown on canvas to ensure audio context resume  
+    canvas.addEventListener('mousedown', () => {
+        try { Tone.start(); } catch(e) {}
+    }, { once: true });
 
     // ─── Start ──────────────────────────────────────────────────
     render();
