@@ -163,12 +163,8 @@
             <span class="value-label" id="vol-val">-10</span>
         </div>
         <button class="file-btn">📁 MIDI<input type="file" accept=".mid,.midi" id="file-input" /></button>
-        <select id="midi-gallery" style="padding:6px 10px; background:#111; color:#fff; border:1px solid #333; border-radius:6px; font-size:12px; min-width:200px;">
-            <option value="">🎵 Gallery — Select a song...</option>
-        </select>
         <button id="clear-btn">✕ Clear</button>
         <span id="status">Click anywhere to start 🎹</span>
-        <div id="now-playing" style="margin-top:8px; font-size:12px; color:#00f3ff; opacity:0.8; white-space:nowrap; text-align:center;"></div>
     </div>
 
     <div id="keyboard-hint">🎹 Click keys or use QWERTY (Z-M white / S-K black)</div>
@@ -537,9 +533,6 @@ async function loadMidiFile(file) {
         const midi = new Midi(buffer);
         midiData = midi;
         statusEl.textContent = `Loaded: ${file.name} (${midi.tracks.length} tracks)`;
-        // Update now playing display
-        const title = file.name.replace('.mid', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        document.getElementById('now-playing').textContent = `♪ Now Playing: ${title}`;
         processMidi(midi);
         return true;
     } catch (e) {
@@ -595,7 +588,6 @@ document.getElementById('file-input').addEventListener('change', async (e) => {
     await loadMidiFile(file);
     isPlaying = false;
     document.getElementById('play-btn').textContent = '▶ Play';
-    setNowPlaying(file.name);
 });
 
 document.getElementById('clear-btn').addEventListener('click', () => {
@@ -607,89 +599,6 @@ document.getElementById('clear-btn').addEventListener('click', () => {
     demoLoaded = false;
     document.getElementById('play-btn').textContent = '▶ Start';
     statusEl.textContent = 'Cleared';
-    document.getElementById('now-playing').textContent = '';
-});
-
-// ─── MIDI Gallery Dropdown ────────────────────────────────────
-const MIDI_GALLERY = {
-    "Classical": [
-        "beethoven-moonlight.mid",
-        "beethoven-fur-elise.mid", 
-        "beethoven-pathetique.mid",
-        "chopin-nocturne-9-2.mid",
-        "chopin-etude-op10-3.mid",
-        "chopin-ballade-1.mid",
-        "chopin-fantaisie-impromptu.mid",
-        "debussy-clair-de-lune.mid",
-        "rachmaninoff-prelude.mid",
-        "grieg-lyric-pieces.mid",
-        "mendelssohn-songs.mid",
-    ],
-    "Neoclassical / Film": [
-        "yiruma-river-flows-in-you.mid",
-        "yiruma-kiss-the-rain.mid",
-        "einaudi-nuvole-bianche.mid",
-        "einaudi-una-mattina.mid",
-        "einaudi-experience.mid",
-        "einaudi-i-giorni.mid",
-        "hisaishi-merry-go-round.mid",
-        "hisaishi-summer.mid",
-        "hisaishi-one-summers-day.mid",
-        "tiersen-comptine.mid",
-        "tiersen-la-valse-damelie.mid",
-    ],
-    "Final Fantasy": [
-        "ff7-aerith-theme.mid",
-        "ff7-main-theme.mid",
-        "ff7-tifa-theme.mid",
-        "ff7-one-winged-angel.mid",
-        "ff9-melodies-of-life.mid",
-        "ff10-to-zanarkand.mid",
-        "ff10-suteki-da-ne.mid",
-        "ff15-somnus.mid",
-        "ff-prelude.mid",
-    ]
-};
-
-function populateMidiGallery() {
-    const select = document.getElementById('midi-gallery');
-    Object.entries(MIDI_GALLERY).forEach(([category, files]) => {
-        const optgroup = document.createElement('optgroup');
-        optgroup.label = category;
-        files.forEach(f => {
-            const opt = document.createElement('option');
-            opt.value = f;
-            opt.textContent = f.replace('.mid', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-            optgroup.appendChild(opt);
-        });
-        select.appendChild(optgroup);
-    });
-}
-
-async function loadGalleryMidi(filename) {
-    try {
-        statusEl.textContent = `Loading ${filename}...`;
-        const response = await fetch(`/midi/${filename}`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const blob = await response.blob();
-        const file = new File([blob], filename, { type: 'audio/midi' });
-        await loadMidiFile(file);
-        isPlaying = false;
-        document.getElementById('play-btn').textContent = '▶ Play';
-        // Update now playing display
-        const title = filename.replace('.mid', '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        document.getElementById('now-playing').textContent = `♪ Now Playing: ${title}`;
-    } catch (e) {
-        statusEl.textContent = `Failed: ${e.message}`;
-        console.error(e);
-    }
-}
-
-document.getElementById('midi-gallery').addEventListener('change', (e) => {
-    const filename = e.target.value;
-    if (!filename) return;
-    loadGalleryMidi(filename);
-    e.target.value = ''; // Allow re-selecting same file
 });
 
 document.getElementById('speed-slider').addEventListener('input', () => {
@@ -702,50 +611,6 @@ document.getElementById('volume-slider').addEventListener('input', () => {
     document.getElementById('vol-val').textContent = config.volume;
     if (volumeNode) volumeNode.volume.value = config.volume;
 });
-
-// ─── MIDI Gallery Dropdown ────────────────────────────────────
-function populateMidiGallery() {
-    const select = document.getElementById('midi-gallery');
-    Object.entries(MIDI_GALLERY).forEach(([category, files]) => {
-        const optgroup = document.createElement('optgroup');
-        optgroup.label = category;
-        files.forEach(f => {
-            const opt = document.createElement('option');
-            opt.value = f;
-            opt.textContent = f.replace('.mid', '').replace(/-/g, ' ');
-            optgroup.appendChild(opt);
-        });
-        select.appendChild(optgroup);
-    });
-}
-
-document.getElementById('midi-gallery').addEventListener('change', async (e) => {
-    const filename = e.target.value;
-    if (!filename) return;
-    
-    try {
-        const resp = await fetch('/midi/' + filename);
-        if (!resp.ok) throw new Error('Not found');
-        const blob = await resp.blob();
-        const file = new File([blob], filename, { type: 'audio/midi' });
-        await loadMidiFile(file);
-        isPlaying = false;
-        document.getElementById('play-btn').textContent = '▶ Play';
-        // Update now playing display
-        const title = filename.replace('.mid', '').replace(/-/g, ' ');
-        document.getElementById('now-playing').textContent = '♪ ' + title;
-    } catch (err) {
-        statusEl.textContent = `Error loading ${filename}`;
-        console.error(err);
-    }
-});
-
-function setNowPlaying(filename) {
-    const title = filename ? filename.replace('.mid', '').replace(/-/g, ' ') : '';
-    document.getElementById('now-playing').textContent = title ? '♪ ' + title : '';
-}
-
-populateMidiGallery();
 
 // ─── QWERTY Keyboard Input ──────────────────────────────────
 document.addEventListener('keydown', (e) => {
