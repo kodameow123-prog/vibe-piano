@@ -259,7 +259,7 @@
         synth = new Tone.PolySynth(Tone.Synth, {
             oscillator: { type: 'triangle' },
             envelope: { attack: 0.002, decay: 0.1, sustain: 0.2, release: 1.0 }
-        });
+        }, 64); // 64 voices max — plenty for piano
         volumeNode = new Tone.Volume(config.volume);
         synth.connect(volumeNode);
         volumeNode.toDestination();
@@ -267,7 +267,7 @@
 
     function startAudio() {
         if (toneStarted) return;
-        Tone.start();
+        try { Tone.start(); } catch(e) {}
         initAudio();
         toneStarted = true;
         statusEl.textContent = 'Engine Active — Tap keys or drop a MIDI';
@@ -797,20 +797,29 @@
         window.__midiNotes = notes.map(n => ({...n, velocity: 90}));
         notes.forEach(n => spawnFallNote(n.midi, n.time, n.duration));
         midiData = { tracks: [{ notes }] };
-        statusEl.textContent = 'Demo loaded! 🎹';
-        document.getElementById('play-btn').textContent = '⏸ Playing';
+        statusEl.textContent = 'Demo loaded!';
+        document.getElementById('play-btn').textContent = '⏸ Pause';
     }
 
     // Click anywhere to start engine and load demo
+    // Use multiple event types to ensure it catches the first user interaction
     let demoLoaded = false;
-    document.addEventListener('click', () => {
+    function bootDemo() {
+        if (demoLoaded || midiData) return;
+        demoLoaded = true;
+        startAudio();
+        loadDemoMelody();
+        isPlaying = true;
+        document.getElementById('play-btn').textContent = '⏸ Pause';
+        statusEl.textContent = 'Playing demo 🎹';
+    }
+    document.addEventListener('click', bootDemo, { once: true });
+    document.addEventListener('touchstart', bootDemo, { once: true });
+    document.getElementById('play-btn').addEventListener('click', (e) => {
         if (!demoLoaded && !midiData) {
-            startAudio();
-            loadDemoMelody();
-            isPlaying = true;
-            demoLoaded = true;
+            bootDemo();
         }
-    }, { once: true });
+    });
 
     // ─── Start ──────────────────────────────────────────────────
     render();
