@@ -300,8 +300,8 @@ function spawnFallNote(midi, delay, duration) {
     const totalTravelDist = keyLineY + noteH + 20;
     const travelDuration = totalTravelDist / pixelsPerSec;
     
-    // Position based on delay: delay=0 starts at key line, delay=travelDuration starts at top
-    const progressFromTop = Math.max(0, Math.min(1, 1 - (delay / travelDuration)));
+    // Position based on delay: delay=0 starts at TOP, delay=travelDuration starts at KEY LINE
+    const progressFromTop = Math.max(0, Math.min(1, delay / travelDuration));
     const startY = -h - 20 + totalTravelDist * progressFromTop;
     
     // Notes at/below key line are already "hit" - don't trigger on frame 1
