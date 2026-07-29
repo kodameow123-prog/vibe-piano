@@ -255,14 +255,47 @@
     // ─── Audio Setup ────────────────────────────────────────────
     function initAudio() {
         if (synth) return;
-        // Use a more responsive synth — polyphonic with fast attack
-        synth = new Tone.PolySynth(Tone.Synth, {
-            oscillator: { type: 'triangle' },
-            envelope: { attack: 0.002, decay: 0.1, sustain: 0.2, release: 1.0 }
-        }, 64); // 64 voices max — plenty for piano
+        // Use a Sampler with real piano samples from Tone.js CDN
+        synth = new Tone.Sampler({
+            urls: {
+                A0: "A0.mp3",
+                C1: "C1.mp3",
+                "D#1": "Ds1.mp3",
+                "F#1": "Fs1.mp3",
+                A1: "A1.mp3",
+                C2: "C2.mp3",
+                "D#2": "Ds2.mp3",
+                "F#2": "Fs2.mp3",
+                A2: "A2.mp3",
+                C3: "C3.mp3",
+                "D#3": "Ds3.mp3",
+                "F#3": "Fs3.mp3",
+                A3: "A3.mp3",
+                C4: "C4.mp3",
+                "D#4": "Ds4.mp3",
+                "F#4": "Fs4.mp3",
+                A4: "A4.mp3",
+                C5: "C5.mp3",
+                "D#5": "Ds5.mp3",
+                "F#5": "Fs5.mp3",
+                A5: "A5.mp3",
+                C6: "C6.mp3",
+                "D#6": "Ds6.mp3",
+                "F#6": "Fs6.mp3",
+                A6: "A6.mp3",
+                C7: "C7.mp3",
+                "D#7": "Ds7.mp3",
+                "F#7": "Fs7.mp3",
+                A7: "A7.mp3",
+                C8: "C8.mp3"
+            },
+            release: 2.0,
+            baseUrl: "https://tonejs.github.io/audio/salamander/",
+            onload: () => { console.log("Piano samples loaded"); }
+        }).toDestination();
+        
         volumeNode = new Tone.Volume(config.volume);
         synth.connect(volumeNode);
-        volumeNode.toDestination();
     }
 
     function startAudio() {
@@ -315,21 +348,16 @@
         
         // Calculate fall speed in pixels per second
         const pixelsPerSec = (keyLineY + noteH + 20) / 2.5; // travel full height in ~2.5s
-        
-        // The note should hit the key line after `delay` seconds
-        // So it starts at: keyLineY - (pixelsPerSec * delay)
-        // This way: delay=0 starts at key line, delay=2s starts 2s above the key line
-        const totalTravelDist = keyLineY + noteH + 20; // top to key line
+        const totalTravelDist = keyLineY + noteH + 20;
         const travelDuration = totalTravelDist / pixelsPerSec;
         
-        // How far along the path should this note be based on its delay?
-        // If delay = travelDuration, note starts at top
-        // If delay = 0, note starts at key line
-        // If delay > travelDuration, note hasn't appeared yet
+        // Position based on delay: earlier notes start closer to bottom
+        // delay=0 starts at key line, delay=travelDuration starts at top
+        const progressFromTop = Math.max(0, Math.min(1, 1 - (delay / travelDuration)));
+        const startY = -h - 20 + totalTravelDist * progressFromTop;
         
-        // Position based on delay: earlier notes (smaller delay) start closer to bottom
-        const progressFromTop = Math.max(0, 1 - (delay / travelDuration));
-        const startY = -h - 20 + (keyLineY + h + 20) * Math.min(progressFromTop, 1);
+        // Notes that start at or below key line are "already hit" - don't play on frame 1
+        const alreadyHit = startY + h >= keyLineY;
 
         scheduledNotes.push({
             x, 
@@ -337,7 +365,7 @@
             w, h,
             color,
             midi,
-            hit: false,
+            hit: alreadyHit,  // Prevent immediate trigger for delay=0 notes
             duration,
             fallSpeed: pixelsPerSec,
             opacity: 1
