@@ -255,9 +255,10 @@
     // ─── Audio Setup ────────────────────────────────────────────
     function initAudio() {
         if (synth) return;
+        // Use a more responsive synth — polyphonic with fast attack
         synth = new Tone.PolySynth(Tone.Synth, {
             oscillator: { type: 'triangle' },
-            envelope: { attack: 0.002, decay: 0.1, sustain: 0.2, release: 0.8 }
+            envelope: { attack: 0.002, decay: 0.1, sustain: 0.2, release: 1.0 }
         });
         volumeNode = new Tone.Volume(config.volume);
         synth.connect(volumeNode);
@@ -269,7 +270,7 @@
         Tone.start();
         initAudio();
         toneStarted = true;
-        statusEl.textContent = 'Engine Active';
+        statusEl.textContent = 'Engine Active — Tap keys or drop a MIDI';
     }
 
     // ─── Color Helpers ──────────────────────────────────────────
@@ -311,11 +312,11 @@
         const w = keyW * 0.8;
         const h = noteH;
         const color = getNoteColor(midi);
-        // Start above the viewport — delay determines initial position
-        const totalDist = keyLineY + 50; // distance from top to key line
-        const travelTime = totalDist / config.speed;
-        // Delay maps to how far down it starts
-        const startY = -h - (delay * config.speed * 2);
+        // Start position: delay scales into pixels
+        // Use a much bigger multiplier so notes with longer delays start further down
+        const pxPerSec = 120; // visual density — higher = more spread out
+        const keyY = KEY_LINE_Y_FRAC * H; // use computed line Y
+        const startY = -h - (delay * pxPerSec);
 
         scheduledNotes.push({
             x, y: startY,
@@ -481,7 +482,8 @@
 
         // ── Draw falling notes ──
         scheduledNotes.forEach((note, idx) => {
-            note.y += config.speed * 0.8;
+            // Speed: much faster fall rate
+            note.y += config.speed * 3;
 
             // Glow
             ctx.shadowBlur = config.glowIntensity;
@@ -518,9 +520,8 @@
                 triggerKeyGlow(note.midi);
                 createParticles(x + w/2, keyLineY, note.color);
 
-                // Play sound if midi playback is active
-                if (isPlaying && toneStarted && synth) {
-                    const freq = Tone.Midi(note.midi).toFrequency();
+                // Play sound when note hits the key line
+                if (toneStarted && synth) {
                     try {
                         synth.triggerAttackRelease(note.midi, note.duration || 0.3);
                     } catch(e) {}
@@ -611,14 +612,21 @@
         startAudio();
         if (midiData) {
             isPlaying = !isPlaying;
-            document.getElementById('play-btn').textContent = isPlaying ? '⏸ Pause' : '▶ Resume';
+            document.getElementById('play-btn').textContent = isPlaying ? '⏸ Pause' : '▶ Play';
             if (isPlaying) {
-                // Reset notes
+                // Reset and re-process notes from the top
                 processMidi(midiData);
-                statusEl.textContent = 'Playing...';
+                statusEl.textContent = `Playing — ${scheduledNotes.length} notes`;
             } else {
                 statusEl.textContent = 'Paused';
             }
+        } else if (!midiData && !demoLoaded) {
+            // Load demo and play
+            loadDemoMelody();
+            demoLoaded = true;
+            isPlaying = true;
+            document.getElementById('play-btn').textContent = '⏸ Pause';
+            statusEl.textContent = 'Playing demo...';
         } else {
             statusEl.textContent = 'Load a MIDI file first!';
         }
@@ -732,37 +740,58 @@
 
     // ─── Sample built-in melody (demo) ──────────────────────────
     function loadDemoMelody() {
+        // More dramatic demo — faster notes, bigger spread
         const notes = [
-            { midi: 60, time: 0, duration: 0.25 },
-            { midi: 62, time: 0.3, duration: 0.25 },
-            { midi: 64, time: 0.6, duration: 0.25 },
-            { midi: 65, time: 0.9, duration: 0.25 },
-            { midi: 67, time: 1.2, duration: 0.5 },
-            { midi: 65, time: 1.8, duration: 0.25 },
-            { midi: 64, time: 2.1, duration: 0.25 },
-            { midi: 62, time: 2.4, duration: 0.25 },
-            { midi: 60, time: 2.7, duration: 0.5 },
-            { midi: 72, time: 3.3, duration: 0.25 },
-            { midi: 71, time: 3.6, duration: 0.25 },
-            { midi: 69, time: 3.9, duration: 0.25 },
-            { midi: 67, time: 4.2, duration: 0.5 },
-            { midi: 65, time: 4.8, duration: 0.25 },
-            { midi: 64, time: 5.1, duration: 0.25 },
-            { midi: 62, time: 5.4, duration: 0.25 },
-            { midi: 60, time: 5.7, duration: 1.0 },
+            { midi: 60, time: 0, duration: 0.15 },
+            { midi: 64, time: 0.15, duration: 0.15 },
+            { midi: 67, time: 0.3, duration: 0.3 },
+            { midi: 72, time: 0.5, duration: 0.4 },
+            { midi: 76, time: 0.7, duration: 0.15 },
+            { midi: 72, time: 0.85, duration: 0.15 },
+            { midi: 79, time: 1.0, duration: 0.5 },
+            { midi: 77, time: 1.3, duration: 0.15 },
+            { midi: 76, time: 1.45, duration: 0.15 },
+            { midi: 74, time: 1.6, duration: 0.15 },
+            { midi: 72, time: 1.75, duration: 0.3 },
+            { midi: 71, time: 2.1, duration: 0.15 },
+            { midi: 72, time: 2.25, duration: 0.15 },
+            { midi: 74, time: 2.4, duration: 0.15 },
+            { midi: 76, time: 2.55, duration: 0.4 },
+            { midi: 72, time: 2.8, duration: 0.15 },
+            { midi: 69, time: 2.95, duration: 0.15 },
+            { midi: 67, time: 3.1, duration: 0.5 },
+            { midi: 65, time: 3.5, duration: 0.15 },
+            { midi: 67, time: 3.65, duration: 0.15 },
+            { midi: 69, time: 3.8, duration: 0.15 },
+            { midi: 72, time: 3.95, duration: 0.3 },
+            { midi: 77, time: 4.2, duration: 0.15 },
+            { midi: 76, time: 4.35, duration: 0.15 },
+            { midi: 74, time: 4.5, duration: 0.15 },
+            { midi: 72, time: 4.65, duration: 0.3 },
+            { midi: 67, time: 4.9, duration: 0.5 },
+            { midi: 60, time: 5.2, duration: 0.15 },
+            { midi: 64, time: 5.3, duration: 0.15 },
+            { midi: 67, time: 5.4, duration: 0.15 },
+            // Big finish
+            { midi: 72, time: 5.6, duration: 0.2 },
+            { midi: 76, time: 5.7, duration: 0.2 },
+            { midi: 79, time: 5.8, duration: 0.2 },
+            { midi: 84, time: 6.0, duration: 0.8 },
         ];
-        window.__midiNotes = notes.map(n => ({...n, velocity: 80}));
+        window.__midiNotes = notes.map(n => ({...n, velocity: 90}));
         notes.forEach(n => spawnFallNote(n.midi, n.time, n.duration));
         midiData = { tracks: [{ notes }] };
-        statusEl.textContent = 'Demo melody loaded — hit Play!';
-        document.getElementById('play-btn').textContent = '▶ Play';
+        statusEl.textContent = 'Demo loaded! 🎹';
+        document.getElementById('play-btn').textContent = '⏸ Playing';
     }
 
-    // Auto-load demo on first click if no MIDI loaded
+    // Click anywhere to start engine and load demo
     let demoLoaded = false;
     document.addEventListener('click', () => {
         if (!demoLoaded && !midiData) {
+            startAudio();
             loadDemoMelody();
+            isPlaying = true;
             demoLoaded = true;
         }
     }, { once: true });
