@@ -1,0 +1,73 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HamieNET - MIDI Archive</title>
+
+    <!-- SEO & Social Meta Tags (Server will replace these) -->
+    <meta name="description" content="HamieNET EDU - A modern multimedia MIDI educational archive featuring visual piano rolls, Music Minus One play-alongs, and AI-powered musical analysis.">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="HamieNET - MIDI Archive">
+    <meta property="og:description" content="Download high-quality MIDI files, view sheet music, and visualize notes.">
+    <meta property="og:image" content="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwMCIgaGVpZ2h0PSI2MzAiIHZpZXdCb3g9IjAgMCAxMjAwIDYzMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjNGY0NmU1Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXNpemU9IjQ4IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0iI0ZGRiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkhhbWllTkVUPC90ZXh0Pjwvc3ZnPg==">
+    <meta name="twitter:card" content="summary_large_image">
+
+    <script>
+        // Global Client Error Reporting
+        window.addEventListener('error', function(event) {
+            if (event.filename && event.filename.indexOf('/api/system/client-error') !== -1) return;
+            fetch('/api/system/client-error', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    error: event.message || (event.error && event.error.toString()) || 'Unknown Error',
+                    stack: (event.error && event.error.stack) || '',
+                    url: window.location.href,
+                    userAgent: navigator.userAgent
+                })
+            }).catch(function() {});
+        });
+
+        window.addEventListener('unhandledrejection', function(event) {
+            fetch('/api/system/client-error', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    error: (event.reason && event.reason.message) || (event.reason && event.reason.toString()) || 'Unhandled Promise Rejection',
+                    stack: (event.reason && event.reason.stack) || '',
+                    url: window.location.href,
+                    userAgent: navigator.userAgent
+                })
+            }).catch(function() {});
+        });
+    </script>
+
+    <style>
+      body { margin: 0; padding: 0; }
+    </style>
+
+  <script type="module" crossorigin src="/assets/main-DucLO5Ur.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/vendor-react-BqMGp5Z8.js">
+  <link rel="modulepreload" crossorigin href="/assets/vendor-CWsHOhwC.js">
+  <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-eOLzzytM.js">
+  <link rel="modulepreload" crossorigin href="/assets/index-I7bOXXlQ.js">
+  <link rel="modulepreload" crossorigin href="/assets/vendor-react-three-D8U5VFBg.js">
+  <link rel="modulepreload" crossorigin href="/assets/utils-dkqkM0pM.js">
+  <link rel="modulepreload" crossorigin href="/assets/vendor-audio-ByEflcSW.js">
+  <link rel="modulepreload" crossorigin href="/assets/wasm-synth-adapter-DdFPY2t8.js">
+  <link rel="modulepreload" crossorigin href="/assets/synth-SLfOj_Xr.js">
+  <link rel="modulepreload" crossorigin href="/assets/vendor-framer-u-nOGm_9.js">
+  <link rel="modulepreload" crossorigin href="/assets/Waveform-D-ctoffs.js">
+  <link rel="modulepreload" crossorigin href="/assets/labTools-CqJvWGph.js">
+  <link rel="modulepreload" crossorigin href="/assets/UserAvatar-C-ItT0Mk.js">
+  <link rel="stylesheet" crossorigin href="/assets/index-DenAnTBT.css">
+<meta name="git-version" content="63f1a95">
+    <meta name="build-time" content="2026-07-29T12:45:44.746Z">
+    <meta name="x-srv" content="JP">
+</head>
+<body class="bg-white dark:bg-[#0f0f0f] text-zinc-900 dark:text-white transition-colors duration-200">
+    <div id="root"></div>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a22c7b99bd3ceb2e',t:'MTc4NTMzMTg3NA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
