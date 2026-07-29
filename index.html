@@ -292,15 +292,48 @@
             release: 2.0,
             baseUrl: "https://tonejs.github.io/audio/salamander/",
             onload: () => { console.log("Piano samples loaded"); }
-        }).toDestination();
-        
+        }, 64);
+        // Preload all samples
+        synth.preload();
+
         volumeNode = new Tone.Volume(config.volume);
         synth.connect(volumeNode);
+        volumeNode.toDestination();
     }
 
     function startAudio() {
         if (toneStarted) return;
         try { Tone.start(); } catch(e) {}
+        initAudio();
+        toneStarted = true;
+        statusEl.textContent = 'Engine Active — Tap keys or drop a MIDI';
+    }
+                                A7: "A7.mp3",
+                                C8: "C8.mp3"
+                            },
+                            release: 2.0,
+                            baseUrl: "https://tonejs.github.io/audio/salamander/",
+                            onload: () => { console.log("Piano samples loaded"); }
+                        }, 64);
+                        // Preload all samples
+                        synth.preload(); "F#5": "Fs5.mp3",
+                                A5: "A5.mp3",
+                                C6: "C6.mp3",
+                                "D#6": "Ds6.mp3",
+                                "F#6": "Fs6.mp3",
+                                A6: "A6.mp3",
+                                C7: "C7.mp3",
+                                "D#7": "Ds7.mp3",
+                                "F#7": "Fs7.mp3",
+                                A7: "A7.mp3",
+                                C8: "C8.mp3"
+                            },
+                            release: 2.0,
+                            baseUrl: "https://tonejs.github.io/audio/salamander/",
+                            onload: () => { console.log("Piano samples loaded"); }
+                        }, 64);
+                        // Preload all samples
+                        synth.preload();
         initAudio();
         toneStarted = true;
         statusEl.textContent = 'Engine Active — Tap keys or drop a MIDI';
